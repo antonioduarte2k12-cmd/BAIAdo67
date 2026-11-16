@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Baía 21 — Cidade Live</title>
+    <link rel="stylesheet" href="style.css?v=8" />
+  </head>
+  <body>
+    <div id="hud">
+      <div class="topbar">
+        <div class="title-wrap">
+          <span class="eyebrow">SIMULADOR URBANO</span>
+          <h1>Baía 21 — Cidade Live</h1>
+        </div>
+      </div>
+
+      <div id="pause-menu" class="hidden" aria-live="polite">
+        <div class="pause-panel">
+          <span class="eyebrow">PAUSA</span>
+          <h2>Jogo pausado</h2>
+          <p>Pressione <strong>R</strong> para voltar ao jogo</p>
+          <button id="resume-button" type="button">Continuar</button>
+        </div>
+      </div>
+
+      <div id="status-bar">Cidade em modo de exploração</div>
+      <div id="coordinates" aria-label="Coordenadas do personagem">X 0 · Y 1 · Z 220</div>
+      <div id="crosshair" aria-hidden="true"></div>
+      <div id="toast">Clique para entrar na cidade</div>
+    </div>
+    <script type="module" src="script.js?v=9"></script>
+  </body>
+</html>

@@ -63,6 +63,9 @@ const skyline = new THREE.Group();
 scene.add(skyline);
 
 const islandRadius = 320;
+const downtownRadius = islandRadius * 0.36;
+const downtownGridExtent = Math.ceil(downtownRadius / 16) * 16;
+const residentialStartRadius = islandRadius * 0.62;
 const seaLevel = -0.28;
 const seaRadius = 800;
 const streetWidth = 10;
@@ -216,6 +219,7 @@ addPerimeterRoad();
 
 const buildingGroup = new THREE.Group();
 scene.add(buildingGroup);
+const buildingColliders = [];
 const buildingMaterials = [
   0xd6d0c4, 0xc7d5d9, 0xd7c8b7, 0xb9c9c2, 0xe0d4c2, 0xb7c2d0,
 ].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.88 }));
@@ -255,6 +259,7 @@ function addBuilding(x, z, width, depth, height, isHouse) {
   building.castShadow = true;
   building.receiveShadow = true;
   buildingGroup.add(building);
+  buildingColliders.push({ x, z, halfWidth: width / 2, halfDepth: depth / 2 });
 
   if (isHouse) {
     const roof = new THREE.Mesh(new THREE.ConeGeometry(width * 0.68, 2.8, 4), houseRoofMaterial);
@@ -305,22 +310,50 @@ for (let x = -islandRadius + 48; x <= islandRadius - 48; x += 32) {
     const buildingX = x + (Math.random() - 0.5) * 7;
     const buildingZ = z + (Math.random() - 0.5) * 7;
     const distanceToCenter = Math.hypot(buildingX, buildingZ);
-    if (distanceToCenter > islandRadius - 33 || isNearRoad(buildingX, buildingZ, 17)) continue;
+    if (
+      distanceToCenter < downtownRadius
+      || distanceToCenter >= residentialStartRadius - 24
+      || distanceToCenter > islandRadius - 33
+      || isNearRoad(buildingX, buildingZ, 17)
+    ) continue;
 
-    const isHouse = distanceToCenter > islandRadius * 0.64 || Math.random() < 0.18;
+    const isHouse = distanceToCenter > islandRadius * 0.48 || Math.random() < 0.18;
     const width = isHouse ? 13 + Math.random() * 4 : 18 + Math.random() * 6;
     const depth = isHouse ? 13 + Math.random() * 4 : 18 + Math.random() * 6;
-    let height;
-    if (isHouse) {
-      height = 4.8 + Math.random() * 3.2;
-    } else if (distanceToCenter < islandRadius * 0.36) {
-      height = 28 + Math.random() * 40;
-    } else if (distanceToCenter < islandRadius * 0.68) {
-      height = 13 + Math.random() * 19;
-    } else {
-      height = 8 + Math.random() * 9;
-    }
+    const height = isHouse ? 4.8 + Math.random() * 3.2 : 13 + Math.random() * 19;
     addBuilding(buildingX, buildingZ, width, depth, height, isHouse);
+  }
+}
+
+for (let x = -downtownGridExtent; x <= downtownGridExtent; x += 16) {
+  for (let z = -downtownGridExtent; z <= downtownGridExtent; z += 16) {
+    const buildingX = x + (Math.random() - 0.5) * 2;
+    const buildingZ = z + (Math.random() - 0.5) * 2;
+    const distanceToCenter = Math.hypot(buildingX, buildingZ);
+    if (distanceToCenter > downtownRadius - 20 || isNearRoad(buildingX, buildingZ, 17)) continue;
+
+    const width = 10 + Math.random() * 3;
+    const depth = 10 + Math.random() * 3;
+    const height = 28 + Math.random() * 40;
+    addBuilding(buildingX, buildingZ, width, depth, height, false);
+  }
+}
+
+for (let x = -islandRadius + 36; x <= islandRadius - 36; x += 24) {
+  for (let z = -islandRadius + 36; z <= islandRadius - 36; z += 24) {
+    const buildingX = x + (Math.random() - 0.5) * 4;
+    const buildingZ = z + (Math.random() - 0.5) * 4;
+    const distanceToCenter = Math.hypot(buildingX, buildingZ);
+    if (
+      distanceToCenter < residentialStartRadius
+      || distanceToCenter > islandRadius - 33
+      || isNearRoad(buildingX, buildingZ, 17)
+    ) continue;
+
+    const width = 12 + Math.random() * 3;
+    const depth = 12 + Math.random() * 3;
+    const height = 4.8 + Math.random() * 3.2;
+    addBuilding(buildingX, buildingZ, width, depth, height, true);
   }
 }
 
@@ -330,6 +363,50 @@ buildingWindows.computeBoundingSphere();
 scene.add(buildingWindows);
 
 const cars = [];
+const knockedDownNpcs = [];
+
+function createCarDriver() {
+  const npc = new THREE.Group();
+  const shirtMaterial = new THREE.MeshStandardMaterial({ color: 0xf0a34a, roughness: 0.8 });
+  const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xd89569, roughness: 0.8 });
+  const pantsMaterial = new THREE.MeshStandardMaterial({ color: 0x23364d, roughness: 0.82 });
+  const arms = [];
+
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 0.32, 4, 8), shirtMaterial);
+  torso.position.y = 0.78;
+  npc.add(torso);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), skinMaterial);
+  head.position.y = 1.3;
+  npc.add(head);
+
+  const hair = new THREE.Mesh(
+    new THREE.SphereGeometry(0.155, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+    new THREE.MeshStandardMaterial({ color: 0x30231d, roughness: 0.9 })
+  );
+  hair.position.y = 1.37;
+  npc.add(hair);
+
+  for (const side of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.3, 4, 8), pantsMaterial);
+    leg.position.set(side * 0.12, 0.26, -0.08);
+    leg.rotation.x = -0.6;
+    npc.add(leg);
+
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.28, 4, 8), shirtMaterial);
+    arm.position.set(side * 0.22, 0.83, 0.22);
+    arm.rotation.x = Math.PI / 2;
+    npc.add(arm);
+    arms.push(arm);
+  }
+
+  npc.position.set(-0.42, 0.2, -0.05);
+  npc.userData.arms = arms;
+  npc.traverse((part) => {
+    if (part.isMesh) part.castShadow = true;
+  });
+  return npc;
+}
 
 function addTrafficCar(color, axis, fixedCoord, start, direction, laneOffset = 0) {
   const car = new THREE.Group();
@@ -349,9 +426,21 @@ function addTrafficCar(color, axis, fixedCoord, start, direction, laneOffset = 0
   chassis.position.y = 0.72;
   car.add(chassis);
 
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.82, 2.15), paint);
+  const cabin = new THREE.Mesh(
+    new THREE.BoxGeometry(1.8, 0.82, 2.15),
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.28,
+      metalness: 0.35,
+      transparent: true,
+      opacity: 0.38,
+      depthWrite: false,
+    })
+  );
   cabin.position.set(0, 1.32, -0.05);
   car.add(cabin);
+  const npc = createCarDriver();
+  car.add(npc);
   const windows = new THREE.Mesh(new THREE.BoxGeometry(1.83, 0.54, 2.02), glass);
   windows.position.set(0, 1.4, -0.03);
   car.add(windows);
@@ -402,6 +491,9 @@ function addTrafficCar(color, axis, fixedCoord, start, direction, laneOffset = 0
     max: Math.sqrt(Math.max(0, roadRadius ** 2 - fixedCoord ** 2)) - 8,
     laneOffset,
     drive: 0,
+    ai: true,
+    phase: Math.random() * Math.PI * 2,
+    npc,
     wheels,
   });
 }
@@ -586,7 +678,40 @@ createBoat(0xf4f0e2, 0, -(islandRadius + 130), { ai: true, angle: -Math.PI / 2, 
 createBoat(0x5bc4bd, -(islandRadius + 195), 0, { ai: true, angle: Math.PI, radius: islandRadius + 195, routeSpeed: 0.024 });
 createBoat(0xec7260, 0, islandRadius + 250, { ai: true, angle: Math.PI / 2, radius: islandRadius + 250, routeSpeed: 0.021 });
 spawnTraffic();
-window.game = { worldState, player, cars, boats };
+window.game = { worldState, player, cars, boats, knockedDownNpcs };
+window.game.isPositionBlocked = isPositionBlocked;
+
+function isPositionBlocked(x, z) {
+  const playerRadius = 0.55;
+  if (buildingColliders.some((building) => (
+    Math.abs(x - building.x) < building.halfWidth + playerRadius
+    && Math.abs(z - building.z) < building.halfDepth + playerRadius
+  ))) return true;
+
+  for (const car of cars) {
+    const yaw = car.mesh.rotation.y;
+    const halfWidth = Math.abs(Math.cos(yaw)) * 1.15 + Math.abs(Math.sin(yaw)) * 2.15 + playerRadius;
+    const halfDepth = Math.abs(Math.sin(yaw)) * 1.15 + Math.abs(Math.cos(yaw)) * 2.15 + playerRadius;
+    if (
+      Math.abs(x - car.mesh.position.x) < halfWidth
+      && Math.abs(z - car.mesh.position.z) < halfDepth
+    ) return true;
+  }
+
+  for (const boat of boats) {
+    const yaw = boat.mesh.rotation.y;
+    const halfWidth = Math.abs(Math.cos(yaw)) * 1.8 + Math.abs(Math.sin(yaw)) * 4.8 + playerRadius;
+    const halfDepth = Math.abs(Math.sin(yaw)) * 1.8 + Math.abs(Math.cos(yaw)) * 4.8 + playerRadius;
+    if (
+      Math.abs(x - boat.mesh.position.x) < halfWidth
+      && Math.abs(z - boat.mesh.position.z) < halfDepth
+    ) return true;
+  }
+
+  return knockedDownNpcs.some((person) => (
+    Math.hypot(x - person.npc.position.x, z - person.npc.position.z) < 1.1
+  ));
+}
 
 const avatar = new THREE.Group();
 const avatarArms = [];
@@ -794,8 +919,10 @@ function updateMovement(delta) {
     movement.normalize();
     const swimming = Math.hypot(player.x, player.z) > islandRadius - 2;
     const step = movement.multiplyScalar(player.speed * (swimming ? 0.42 : 1) * delta);
-    player.x += step.x;
-    player.z += step.z;
+    const nextX = player.x + step.x;
+    if (!isPositionBlocked(nextX, player.z)) player.x = nextX;
+    const nextZ = player.z + step.z;
+    if (!isPositionBlocked(player.x, nextZ)) player.z = nextZ;
     const oceanLimit = seaRadius - 4;
     if (Math.hypot(player.x, player.z) > oceanLimit) {
       const angle = Math.atan2(player.z, player.x);
@@ -849,9 +976,14 @@ function togglePause(forceState) {
 
 function updateTraffic(time, delta) {
   for (const car of cars) {
-    if (worldState.inCar && worldState.currentCar === car) {
+    if (!car.ai || (worldState.inCar && worldState.currentCar === car)) {
       continue;
     }
+
+    const armPose = Math.sin(time * 1.8 + car.phase) * 0.025;
+    car.npc.userData.arms.forEach((arm, index) => {
+      arm.rotation.x = Math.PI / 2 + armPose * (index === 0 ? 1 : -1);
+    });
 
     const drift = Math.sin(time * 2 + car.mesh.position.x * 0.4) * 0.08;
     if (car.axis === 'x') {
@@ -877,6 +1009,22 @@ function updateTraffic(time, delta) {
     }
     for (const wheel of car.wheels) {
       wheel.rotation.x -= car.direction * car.speed * delta / 0.4;
+    }
+  }
+}
+
+function updateKnockedDownNpcs(delta) {
+  for (const person of knockedDownNpcs) {
+    if (person.landed) continue;
+
+    person.velocity.y -= 12 * delta;
+    person.npc.position.addScaledVector(person.velocity, delta);
+    person.npc.rotation.z += person.spin * delta;
+    if (person.npc.position.y <= 0) {
+      person.npc.position.y = 0;
+      person.npc.rotation.z = Math.sign(person.spin) * Math.PI / 2;
+      person.velocity.set(0, 0, 0);
+      person.landed = true;
     }
   }
 }
@@ -950,14 +1098,20 @@ function enterNearestVehicle() {
   }
 
   if (nearest.type === 'car') {
+    const car = nearest.vehicle;
+    car.ai = false;
+    car.drive = 0;
+    const driverEjected = ejectCarDriver(car);
     worldState.inBoat = false;
     worldState.currentBoat = null;
     worldState.inCar = true;
-    worldState.currentCar = nearest.vehicle;
-    player.x = nearest.vehicle.mesh.position.x;
-    player.z = nearest.vehicle.mesh.position.z;
+    worldState.currentCar = car;
+    player.x = car.mesh.position.x;
+    player.z = car.mesh.position.z;
     player.y = 1.7;
-    toastEl.textContent = 'Você entrou no carro';
+    toastEl.textContent = driverEjected
+      ? 'Você roubou o carro e derrubou o motorista!'
+      : 'Você entrou no carro';
   } else {
     worldState.inCar = false;
     worldState.currentCar = null;
@@ -975,12 +1129,40 @@ function enterNearestVehicle() {
   updateStatusBar();
 }
 
+function ejectCarDriver(car) {
+  if (!car.npc) return false;
+
+  const npc = car.npc;
+  car.mesh.remove(npc);
+  scene.add(npc);
+
+  const sideOffset = new THREE.Vector3(-3.1, 0, 0)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), car.mesh.rotation.y);
+  npc.position.set(
+    car.mesh.position.x + sideOffset.x,
+    0,
+    car.mesh.position.z + sideOffset.z
+  );
+  npc.rotation.set(0, car.mesh.rotation.y, 0);
+
+  knockedDownNpcs.push({
+    npc,
+    velocity: new THREE.Vector3(sideOffset.x * 1.1, 3.6, sideOffset.z * 1.1),
+    spin: sideOffset.x + sideOffset.z >= 0 ? 5 : -5,
+    landed: false,
+  });
+  car.npc = null;
+  return true;
+}
+
 function exitVehicle() {
   if (worldState.inCar && worldState.currentCar) {
     const car = worldState.currentCar;
     player.x = car.mesh.position.x + (car.axis === 'x' ? 3.5 * car.direction : 0);
     player.z = car.mesh.position.z + (car.axis === 'z' ? 3.5 * car.direction : 0);
     player.y = 1.7;
+    car.ai = false;
+    car.drive = 0;
     worldState.inCar = false;
     worldState.currentCar = null;
     toastEl.textContent = 'Você saiu do carro';
@@ -1013,6 +1195,7 @@ function tick() {
   if (!worldState.paused) {
     updateTraffic(elapsed, delta);
     updateBoats(elapsed, delta);
+    updateKnockedDownNpcs(delta);
   }
 
   updateAvatarAndCoordinates();
